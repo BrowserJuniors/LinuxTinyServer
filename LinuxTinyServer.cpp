@@ -252,6 +252,16 @@ bool SafePath( const char *path )
    // website.
 
    //    YOUR CODE HERE
+   // auto dots = strstr(str, )
+   auto ptr = path;
+   while (*ptr != '\0') {
+      if (*ptr == '.') {
+         if (*(ptr + 1) == '.') {
+            return false;
+         }
+      }
+      ptr++;
+   }
 
    return true;
    }
