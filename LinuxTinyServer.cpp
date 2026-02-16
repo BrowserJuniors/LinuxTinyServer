@@ -141,6 +141,26 @@ const char *Mimetype( const string filename )
    // Anything not matched is an "octet-stream", treated as
    // an unknown binary, which browsers treat as a download.
 
+   // parse
+   string extension;
+   auto ext_pos = filename.find_last_of('.');
+   if (ext_pos != string::npos) {
+      extension = filename.substr(ext_pos);
+   }
+   else {
+      // error handling, default for now
+      return "application/octet-stream";
+   }
+
+   // search
+   size_t num_entries = sizeof(MimeTable) / sizeof(MimeTable[0]);
+
+   for (size_t i = 0; i < num_entries; ++i) {
+      if (MimeTable[i].Extension == extension) {
+         return MimeTable[i].Mimetype;
+      }
+   }
+
    return "application/octet-stream";
    }
 
