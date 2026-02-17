@@ -143,12 +143,15 @@ const char *Mimetype( const string filename )
 
    // parse
    string extension;
-   auto ext_pos = filename.find_last_of('.');
+   size_t ext_pos = filename.find_last_of('.');
    if (ext_pos != string::npos) {
       extension = filename.substr(ext_pos);
+      // lowercase that jawn
+      for (auto &c : extension) {
+         c = (char) tolower(c);
+      }
    }
    else {
-      // error handling, default for now
       return "application/octet-stream";
    }
 
@@ -301,6 +304,51 @@ void FileNotFound( int talkSocket )
    }
 
 
+ssize_t SendAll(int talkSocket, const char* msg, size_t total) {
+   size_t sent = 0;
+   ssize_t bytes = 0;
+   while (sent < total) {
+      bytes = send(talkSocket, msg + sent, total - sent, 0 );
+      if (bytes == -1) {
+         // TODO: handle error codes
+         return -1;
+      }
+      if (bytes == 0) {
+         break;
+      }
+
+      sent += size_t(bytes);
+   }
+
+   return sent;
+}
+
+ssize_t RecvAll(int talkSocket, char* file_buf, size_t buf_size) {
+   size_t recvd = 0;
+   ssize_t bytes = 0;
+
+   while (recvd < buf_size - 1) {
+      bytes = recv(talkSocket, file_buf + recvd, buf_size - recvd - 1, 0 );
+      if (bytes == -1) {
+         // TODO: handle error codes
+         return -1;
+      }
+      if (bytes == 0) {
+         break;
+      }
+      
+      recvd += size_t(bytes);
+      file_buf[recvd] = '\0';
+      
+      if (strstr(file_buf, "\r\n\r\n")) {
+         break;
+      }
+   }
+
+   return recvd;
+}
+
+
 void *Talk( void *talkSocket )
    {
    // look for a GET message, then reply with the
@@ -329,6 +377,114 @@ void *Talk( void *talkSocket )
 
    //    YOUR CODE HERE
 
+   // listen
+   char* buf = new char[10000];
+   int *sockPtr = (int *)(talkSocket);
+   int socket = *sockPtr;
+   delete sockPtr;
+
+   size_t bytes = RecvAll(socket, buf, 10000 - 1);
+   buf[bytes] = '\0';
+
+   string request = string(buf);
+   
+   // cleanup
+   delete[] buf;
+   buf = nullptr;
+
+   // parse: action, path
+   size_t space1 = request.find(' ');
+   size_t space2 = request.find(' ', space1 + 1);
+
+   if (space1 == string::npos || space2 == string::npos) {
+      close(socket);
+      return nullptr;
+   }
+   
+   string action = request.substr(0, space1);
+   string path = request.substr(space1 + 1, space2 - space1 - 1);
+
+   // unencode
+   path = UnencodeUrlEncoding(path);
+   
+   // plugin
+   if (Plugin && Plugin->MagicPath(path)) {
+      string response = Plugin->ProcessRequest(request);
+
+      // HEADER INCLUDED BY PLUGIN
+      // send response
+      SendAll(socket, response.c_str(), response.length());
+
+      // close
+      close(socket);
+      return nullptr;
+   }
+   
+   const char* path_cstr = path.c_str();
+   
+   if (action != "GET" || !SafePath(path_cstr)) {
+      // error handling?
+      AccessDenied(socket);
+      // close
+      close(socket);
+      return nullptr;
+
+   }
+
+   // open(path, flags (reading only))
+   string full_path = string(RootDirectory) + path;
+   int file = open(full_path.c_str(), O_RDONLY);
+
+   // file not found
+   if (file == -1) {
+      FileNotFound(socket);
+      // close
+      close(socket);
+      return nullptr;
+   }
+
+   // directory
+   off_t fileSize = FileSize(file);
+   if (fileSize == -1) {
+      AccessDenied(socket);
+      // close
+      close(socket);
+      return nullptr;
+   }
+
+
+   // send header
+   string header = "HTTP/1.1 200 OK\r\n";
+   header += "Content-Type: " + string(Mimetype(path)) + "\r\n"; 
+   header += "Content-Length: " + to_string(fileSize) + "\r\n";
+   header += "Connection: close\r\n\r\n";
+
+   // response: file at path
+   char* file_buf = new char[10000];
+   ssize_t bytes = 0;
+   while (true) {
+      bytes = read(file, file_buf, 10000);
+
+      // failure to read
+      if (bytes < 1) {
+         // eof: 0
+         // error: -1
+         break;
+      }
+
+      // failure to send
+      if (SendAll(socket, file_buf, bytes) == -1) {
+         break;
+      }
+   }
+
+   delete[] file_buf;
+   file_buf = nullptr;
+
+   // close
+   close(file);
+   close(socket);
+   return nullptr;
 
    }
 
