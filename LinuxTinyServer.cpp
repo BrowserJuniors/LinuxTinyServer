@@ -284,6 +284,8 @@ off_t FileSize( int f )
 
 void AccessDenied( int talkSocket )
    {
+   cerr << "AccessDenied()" << endl;
+
    const char accessDenied[ ] = "HTTP/1.1 403 Access Denied\r\n"
          "Content-Length: 0\r\n"
          "Connection: close\r\n\r\n";
@@ -295,6 +297,8 @@ void AccessDenied( int talkSocket )
 
 void FileNotFound( int talkSocket )
    {
+   cerr << "FileNotFound()" << endl;
+
    const char fileNotFound[ ] = "HTTP/1.1 404 Not Found\r\n"
          "Content-Length: 0\r\n"
          "Connection: close\r\n\r\n";
@@ -420,9 +424,8 @@ void *Talk( void *talkSocket )
       return nullptr;
    }
    
-   const char* path_cstr = path.c_str();
    
-   if (action != "GET" || !SafePath(path_cstr)) {
+   if (action != "GET" || !SafePath(path.c_str())) {
       // error handling?
       AccessDenied(socket);
       // close
@@ -433,6 +436,7 @@ void *Talk( void *talkSocket )
 
    // open(path, flags (reading only))
    string full_path = string(RootDirectory) + path;
+   cerr << "full path: " << full_path << endl;
    int file = open(full_path.c_str(), O_RDONLY);
 
    // file not found
@@ -459,9 +463,11 @@ void *Talk( void *talkSocket )
    header += "Content-Length: " + to_string(fileSize) + "\r\n";
    header += "Connection: close\r\n\r\n";
 
+   SendAll(socket, header.c_str(), header.length());
+
    // response: file at path
    char* file_buf = new char[10000];
-   ssize_t bytes = 0;
+   bytes = 0;
    while (true) {
       bytes = read(file, file_buf, 10000);
 
@@ -545,24 +551,23 @@ int main( int argc, char **argv )
 
    // Create the listenSocket, specifying that we'll r/w
    // it as a stream of bytes using TCP/IP.
-
-
    //    YOUR CODE HERE
+   listenSocket = socket(AF_INET, SOCK_STREAM, 0);
 
 
    // Bind the listen socket to the IP address and protocol
    // where we'd like to listen for connections.
-
-
    //    YOUR CODE HERE
+   cout << "bind()" << endl;
+   if (::bind(listenSocket, (struct sockaddr *)&listenAddress, sizeof(listenAddress)) == -1) {
+      cerr << "bind() returned error" << endl;
+   }
 
 
    // Begin listening for clients to connect to us.
-
-
    //    YOUR CODE HERE
-
-
+   cout << "listen()" << endl;
+   listen(listenSocket, SOMAXCONN);
    // The second argument to listen( ) specifies the maximum
    // number of connection requests that can be allowed to
    // stack up waiting for us to accept them before Linux
@@ -572,16 +577,17 @@ int main( int argc, char **argv )
    // queue length.  (Under WSL Ubuntu, it's defined as 128
    // in /usr/include/x86_64-linux-gnu/bits/socket.h.)
 
+   
    // Accept each new connection and create a thread to talk with
    // the client over the new talk socket that's created by Linux
    // when we accept the connection.
-
-
    //    YOUR CODE HERE
-
-
-
-      {
+   while (true) {
+      talkSocket = accept(listenSocket, 
+         (struct sockaddr *)&talkAddress, 
+         &talkAddressLength);
+      
+      cout << "accept() returned" << endl;
       // When creating a child thread, you get to pass a void *,
       // usually used as a pointer to an object with whatever
       // information the child needs.
@@ -599,8 +605,14 @@ int main( int argc, char **argv )
       // must be at least as large as the int.  But that would not
       // demonstrate what to do in the general case.)
 
-
+      
       //    YOUR CODE HERE
+      int *talkSockPtr = new int(talkSocket);
+      pthread_t thread1;
+
+      pthread_create( &thread1, nullptr, Talk, talkSockPtr);
+      cerr << "thread created" << endl;
+
       }
 
    close( listenSocket );
